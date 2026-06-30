@@ -8101,7 +8101,7 @@
      ;; Bubble is in paper space and auto-type is coordinate-based - show warning
      (haws-tip
        4                                ; Unique tip ID for AVPORT selection explanation
-       "You must tell CNM which viewport this bubble note belongs to. EVERY new bubble note with a coordinate-based auto-text needs this action when you choose to use the previous reference object.\n\nThis is a little faster than selecting the reference object again because you don't need to pay close attention."
+       "You must tell CNM which viewport this bubble note belongs to.\n\nEvery new paper space bubble note with coordinate-based auto-text needs this information unless you are currently choosing a reference object through a viewport. Providing this response is a little faster than selecting the reference object again because you don't need to pay close attention for this."
      )
     )
   )
