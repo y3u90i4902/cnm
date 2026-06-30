@@ -71,16 +71,15 @@
       (haws-distrib-update-version new-version)
       (princ "\nVersion updated in edclib.lsp"))
     (princ "\nUsing current version (no change)"))
-  
+  (princ "\nCompiling files...")
+  ;; Alert requires a mouse click, which clears the type-ahead buffer and
+  ;; prevents keystrokes typed during the long compilation from being processed.
+  (alert (princ (strcat "\nCompiling version " new-version ". This will take ~30 seconds. Do not type until the completion dialog appears.")))
   ;; Clean destination folder first
   (haws-distrib-clean-destination)
-  
   ;; Main compilation process
   (haws-distrib-compile-all-files)
-  
-  (princ "\n=== Compilation Complete ===")
-  (princ "\nNext step: Run existing ../compile/distrib.bat for final packaging")
-  (princ)
+  (alert (princ (strcat "\n=== Compilation Complete ===\nVersion: " new-version "\nNext step: Run ../compile/distrib.bat for final packaging.")))
 )
 
 (defun haws-distrib-validate-environment (/ result)
