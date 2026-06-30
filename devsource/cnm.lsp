@@ -8961,7 +8961,7 @@
      (setq raw-code
        (if (vl-string-search "\\_FldIdx " (cdr (assoc 2 en)))
          (vl-string-subst
-           (if (setq id (cdr (assoc 331 fd)))
+           (if (and (setq id (cdr (assoc 331 fd))) (entget id))
              (vl-string-subst
                (strcat
                  "ObjId "
