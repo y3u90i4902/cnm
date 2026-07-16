@@ -30,6 +30,7 @@
            )
        )
        (if (not hcnm-edit-bubble)(load "cnm"))
+       (hcnm-check-moved-project (hcnm-proj))
        (hcnm-edit-bubble obj1)
       )
       ((and (= etype "INSERT") (cdr (assoc 66 e)))
