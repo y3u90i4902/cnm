@@ -44,7 +44,13 @@
       "Bash(devtools/scripts/test-suite/cnm-unattended-tests.bat:*)",
       "Bash(head:*)",
       "Bash(cd:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "PowerShell(powershell -File devtools\\\\scripts\\\\haws-lisp-paren-check.ps1 -FilePath \"devsource\\\\cnm.lsp\")",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "PowerShell(powershell -File devtools\\\\scripts\\\\haws-lisp-paren-check.ps1 -FilePath \"devtools\\\\scripts\\\\compile.lsp\")",
+      "PowerShell(powershell -File devtools\\\\scripts\\\\haws-lisp-paren-check.ps1 -FilePath \"devsource\\\\edclib.lsp\" 2>&1 | Select-String -Pattern \"issues|SUMMARY|Final nesting\")"
     ]
   }
 }
