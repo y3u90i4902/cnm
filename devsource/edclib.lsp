@@ -1889,6 +1889,8 @@
      ;; Concatenate all strings with ">>> DEBUG: " prefix
      (setq output (apply 'strcat (cons (menucmd "M=$(edtime,$(getvar,date),YYYY-MO-DD HH:MM:SS)") (cons ">>> DEBUG: " messages))))
      (haws-message-log output "haws-debug-log.md")
+     (princ output)
+     (princ "\n")
      output ; Return the output string
     )
     (t nil) ; Return nil when disabled

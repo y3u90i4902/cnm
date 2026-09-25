@@ -1540,8 +1540,29 @@
 ;;   for all notes, and using (cadr phaselisti) to know which position in qtylist to
 ;;   put the qtys.  Use "" for any unused phases on a sheet.
 ;;   '((shti (typj (notek qty1 qty2 qtyk))))
+;;==============================================================================
+;; hcnm-wcmatch-escape-commas
+;;==============================================================================
+;; Purpose:
+;;   wcmatch treats "," as an OR separator between alternate patterns. A
+;;   literal comma in a folder or file name used as part of a wcmatch pattern silently
+;;   splits into unrelated alternatives instead of matching as one string.
+;;   Backtick-escaping each comma keeps it literal while leaving actual
+;;   wildcard characters (*, ?) untouched.
+;;==============================================================================
+(defun hcnm-wcmatch-escape-commas (str / result pos)
+  (setq result "")
+  (while (setq pos (vl-string-search "," str))
+    (setq
+      result (strcat result (substr str 1 pos) "`,")
+      str (substr str (+ pos 2))
+    )
+  )
+  (strcat result str)
+)
 (defun hcnm-tally (dn projnotes txtht linspc tblwid phasewid / allnot
                all-sheets-quantities col1x column dqwid el f1 f2 flspec i
+               flspec-pattern i
                input ndwid notdesc notetitles note-first-line-p notnum
                notprice notqty notspc nottyp notunt numfnd numlist
                pgp-defines-run pgp-filename pgp-file-contents
@@ -1653,6 +1674,14 @@
                t
                "\nFiles to tally using OS wildcards (eg. * or grad\\*): "
              )
+            ;; wcmatch treats "," as an OR separator, so a folder path with a
+            ;; literal comma (e.g. "...N53, M40, R42...") silently splits
+            ;; the pattern below into unrelated alternatives. flspec-pattern is 
+			;; escaped for wcmatch only - the
+            ;; attrib shell command and the alert below still use the raw
+            ;; flspec, since neither of those treats commas specially.
+            flspec-pattern
+             (hcnm-wcmatch-escape-commas flspec)							
           )
           (vl-cmdf
             "run"
@@ -1689,7 +1718,7 @@
                  (and 
                    (wcmatch 
                      (strcase (substr sheet-filename column))
-                     (strcase (strcat flspec "`.NOT"))
+                     (strcase (strcat flspec-pattern "`.NOT"))
                    )
                    (or (= "\\" (substr sheet-filename (1- column) 1)) 
                        (= "\\" (substr sheet-filename column 1))
@@ -2374,6 +2403,8 @@
   (haws-debug "c:hcnm-cnmkt after haws-core-init")
   (princ (haws-evangel-msg))
   (haws-debug "c:hcnm-cnmkt after haws-evangel-msg")
+  (c:hcnm-bnatu)
+  (haws-debug "c:hcnm-cnmkt after c:hcnm-bnatu")
   (hcnm-cnm "Search")
   (haws-debug "c:hcnm-cnmkt after hcnm-cnm")
   (haws-core-restore)
@@ -2724,6 +2755,7 @@
     (list "BubbleTextLine6PromptP" "0" 4)
     (list "BubbleTextLine0PromptP" "0" 4)
     (list "BubbleSkipEntryPrompt" "0" 4)
+    (list "BnatuHighlightUpdated" "1" 4)
     (list "BubbleOffsetDropSign" "1" 2)
     (list "BubbleStreetNameAllCaps" "1" 2)
     (list "BubbleTextPrefixLF" "" 2)
@@ -2763,6 +2795,7 @@
     (list "BubbleTextPrecisionPipeSlope" "2" 4)
     (list "BubbleTextPrecisionPipeLength" "2" 4)
     (list "BubbleCurrentAlignment" "" 0)
+    (list "BubbleCurrentNameObject" "" 0)
     (list "BubbleArrowIntegralPending" "0" 0)
   )
 )
@@ -4708,6 +4741,10 @@
   (cond
     ;; If it's not a new insertion, don't draw a leader.
     (ename-bubble-old
+     ;; New insert uses CLAYER. NOTESLDR was set in hcnm-bn-insert; restore
+     ;; the old bubble's layer so replace does not send the new block to
+     ;; C-ANNO-HCNM-BUBL while the reused leader stays on (e.g.) NOPLOT.
+     (setvar "clayer" (cdr (assoc 8 (entget ename-bubble-old))))
      (setq auold (getvar "aunits"))
      (setvar "aunits" 3)
      (vl-cmdf
@@ -4915,6 +4952,8 @@
              num
              lattribs
            )
+          bubble-data
+           (hcnm-bn-bubble-data-set bubble-data "ATTRIBUTES" lattribs)
         )
         (mapcar
           '(lambda (index)
@@ -4958,6 +4997,9 @@
                               ename-bubble-old ename-last ename-leader
                               ename-leader-old ename-temp replace-bubble-p 
                               attributes notetype
+                              auto-tags-written manual-tags-written
+                              auto-metadata auto-text-alist entry tg
+                              auto-text existing color-split
                              )
   (setq
     ename-last
@@ -5006,6 +5048,31 @@
     )
   )
   (hcnm-bn-lattribs-to-dwg ename-bubble attributes)
+  ;; A tag is pure-auto only if its full text is exactly the auto-text this
+  ;; insertion/replace just generated - any manual prefix/suffix mixed in
+  ;; makes the whole line manual. Tags with no content are left alone.
+  (setq
+    auto-metadata
+     (hcnm-bn-bubble-data-get bubble-data "auto-metadata")
+    auto-text-alist nil
+  )
+  (foreach entry auto-metadata
+    (setq tg (car entry) auto-text (nth 3 entry))
+    (setq existing (assoc tg auto-text-alist))
+    (setq auto-text-alist
+      (if existing
+        (subst (cons tg (cons auto-text (cdr existing))) existing auto-text-alist)
+        (cons (cons tg (list auto-text)) auto-text-alist)
+      )
+    )
+  )
+  (setq
+    color-split (hcnm-bn-classify-note-colors attributes auto-text-alist)
+    auto-tags-written (car color-split)
+    manual-tags-written (cadr color-split)
+  )
+  (hcnm-bn-set-attribute-source-color ename-bubble auto-tags-written 256)
+  (hcnm-bn-set-attribute-source-color ename-bubble manual-tags-written (hcnm-bn-manual-text-color))
   ;; Find or reuse leader
   (haws-debug (list ">>> Finding leader, replace-bubble-p=" (if replace-bubble-p "T" "NIL") " ename-temp=" (vl-princ-to-string ename-temp)))
   (cond
@@ -5105,6 +5172,7 @@
           (haws-debug (list ">>> Extracted: tag=" tag " auto-type=" auto-type " handle=" handle-reference))
           
           ;; Build composite key and add to XDATA
+          (setq auto-type (hcnm-bn-normalize-auto-type auto-type))
           (setq composite-key (cons auto-type handle-reference))
           (setq xdata-alist 
             (hcnm-bn-add-xdata-entry xdata-alist tag composite-key auto-text))         )
@@ -5766,113 +5834,125 @@
                                   )
   ;; Strip format codes from current text for clean searching
   (setq clean-current-text current-text)
+  ;; If recalculation failed or produced no usable text, preserve the current
+  ;; attribute value instead of blanking the line or replacing it with an empty string.
   (cond
-    ((wcmatch clean-current-text "\\L*")
-     (setq clean-current-text (substr clean-current-text 3))
+    ((or (not new-auto-text)
+         (= new-auto-text "")
+         (= new-auto-text (hcnm-config-getvar "BubbleTextNotFound"))
+       )
+     current-text
     )
-    ((wcmatch clean-current-text "\\O*")
-     (setq clean-current-text (substr clean-current-text 3))
-    )
-  )
-  (cond
-    ((wcmatch clean-current-text "%%u*")
-     (setq clean-current-text (substr clean-current-text 4))
-    )
-    ((wcmatch clean-current-text "%%o*")
-     (setq clean-current-text (substr clean-current-text 4))
-    )
-  )
-  ;; Search priority:
-  ;;   1) Delimiter (``` marker)
-  ;;   2) AcObjProp field expression - structural replace, ObjId-agnostic
-  ;;   3) Old XDATA value exact match
-  ;;   4) Empty field
-  ;;   5) Corruption detection
-  ;;   6) Fallback append
-  (setq
-    new-text
+    (t
      (cond
-       ;; Priority 1: If delimiter found, replace it
-       ((setq pos (vl-string-search "```" clean-current-text))
-        (strcat
-          (substr clean-current-text 1 pos)
-          new-auto-text
-          (if (> (strlen clean-current-text) (+ pos 3))
-            (substr clean-current-text (+ pos 4))
-            ""
-          )
-        )
+       ((wcmatch clean-current-text "\\L*")
+        (setq clean-current-text (substr clean-current-text 3))
        )
-       ;; Priority 2: AcObjProp field present in current text.
-       ;;
-       ;; AutoCAD reassigns ObjIds on every session open, so the ObjId stored in
-       ;; XDATA at insertion time never matches the one lm:fieldcode reads back.
-       ;; We therefore locate the field structurally instead of by value:
-       ;;
-       ;;   before-field = text before %<\AcObjProp  (user prefix, usually "")
-       ;;   field body   = %<\AcObjProp...>%          (replaced by new-auto-text)
-       ;;   discarded    = anything after the last >%  (the postfix e.g. " LF" is
-       ;;                  already embedded inside new-auto-text, so the literal
-       ;;                  trailing " LF" left in current-text must be dropped)
-       ;;
-       ;; Result: before-field + new-auto-text  (no suffix appended)
-       ((setq field-start (vl-string-search "%<\\AcObjProp" clean-current-text))
-        ;; Find the LAST >% - the outermost field closer.
-        ;; Nested sub-fields (%<\_ObjId ...>%) also contain >%, so we must not
-        ;; stop at the first occurrence.
-        (setq hcnm-search-pos 0
-              hcnm-last-found nil)
-        (while (setq hcnm-found
-                 (vl-string-search ">%" clean-current-text hcnm-search-pos))
-          (setq hcnm-last-found hcnm-found
-                hcnm-search-pos (1+ hcnm-found))
-        )
-        (setq field-end hcnm-last-found)
-        (if (and field-end (> field-end field-start))
-          (progn
-            (setq before-field (substr clean-current-text 1 field-start))
-            ;; Intentionally drop everything after the last >% (field-end).
-            ;; new-auto-text already contains the postfix (e.g. " LF"); appending
-            ;; what follows >% in current-text would duplicate it.
-            (strcat before-field new-auto-text)
-          )
-          ;; Fallback: field markers malformed, replace whole thing
-          new-auto-text
-        )
+       ((wcmatch clean-current-text "\\O*")
+        (setq clean-current-text (substr clean-current-text 3))
        )
-       ;; Priority 3: If old auto-text found in XDATA, replace it exactly
-       ((and
-          old-auto-text
-          (setq pos (vl-string-search old-auto-text clean-current-text))
-        )
-        (strcat
-          (substr clean-current-text 1 pos)
-          new-auto-text
-          (if (> (strlen clean-current-text)
-                 (+ pos (strlen old-auto-text))
-              )
-            (substr clean-current-text (+ pos (strlen old-auto-text) 1))
-            ""
-          )
-        )
-       )
-       ;; Priority 4: Empty field
-       ((= clean-current-text "") new-auto-text)
-       ;; Priority 5: Corruption detection
-       ((or
-          (and (vl-string-search "STA " clean-current-text)
-               (vl-string-search "LT" clean-current-text)
-               (> (strlen clean-current-text) 30))
-          (wcmatch clean-current-text "*.* LT")
-          (wcmatch clean-current-text "*.* RT")
-        )
-        new-auto-text
-       )
-       ;; Fallback: append WITHOUT space
-       (t (strcat clean-current-text new-auto-text))
      )
+     (cond
+       ((wcmatch clean-current-text "%%u*")
+        (setq clean-current-text (substr clean-current-text 4))
+       )
+       ((wcmatch clean-current-text "%%o*")
+        (setq clean-current-text (substr clean-current-text 4))
+       )
+     )
+     ;; Search priority:
+     ;;   1) Delimiter (``` marker)
+     ;;   2) AcObjProp field expression - structural replace, ObjId-agnostic
+     ;;   3) Old XDATA value exact match
+     ;;   4) Empty field
+     ;;   5) Corruption detection
+     ;;   6) Fallback append
+     (setq
+       new-text
+        (cond
+          ;; Priority 1: If delimiter found, replace it
+          ((setq pos (vl-string-search "```" clean-current-text))
+           (strcat
+             (substr clean-current-text 1 pos)
+             new-auto-text
+             (if (> (strlen clean-current-text) (+ pos 3))
+               (substr clean-current-text (+ pos 4))
+               ""
+             )
+           )
+          )
+          ;; Priority 2: AcObjProp field present in current text.
+          ;;
+          ;; AutoCAD reassigns ObjIds on every session open, so the ObjId stored in
+          ;; XDATA at insertion time never matches the one lm:fieldcode reads back.
+          ;; We therefore locate the field structurally instead of by value:
+          ;;
+          ;;   before-field = text before %<\AcObjProp  (user prefix, usually "")
+          ;;   field body   = %<\AcObjProp...>%          (replaced by new-auto-text)
+          ;;   discarded    = anything after the last >%  (the postfix e.g. " LF" is
+          ;;                  already embedded inside new-auto-text, so the literal
+          ;;                  trailing " LF" left in current-text must be dropped)
+          ;;
+          ;; Result: before-field + new-auto-text  (no suffix appended)
+          ((setq field-start (vl-string-search "%<\\AcObjProp" clean-current-text))
+           ;; Find the LAST >% - the outermost field closer.
+           ;; Nested sub-fields (%<\_ObjId ...>%) also contain >%, so we must not
+           ;; stop at the first occurrence.
+           (setq hcnm-search-pos 0
+                 hcnm-last-found nil)
+           (while (setq hcnm-found
+                    (vl-string-search ">%" clean-current-text hcnm-search-pos))
+             (setq hcnm-last-found hcnm-found
+                   hcnm-search-pos (1+ hcnm-found))
+           )
+           (setq field-end hcnm-last-found)
+           (if (and field-end (> field-end field-start))
+             (progn
+               (setq before-field (substr clean-current-text 1 field-start))
+               ;; Intentionally drop everything after the last >% (field-end).
+               ;; new-auto-text already contains the postfix (e.g. " LF"); appending
+               ;; what follows >% in current-text would duplicate it.
+               (strcat before-field new-auto-text)
+             )
+             ;; Fallback: field markers malformed, replace whole thing
+             new-auto-text
+           )
+          )
+          ;; Priority 3: If old auto-text found in XDATA, replace it exactly
+          ((and
+             old-auto-text
+             (setq pos (vl-string-search old-auto-text clean-current-text))
+           )
+           (strcat
+             (substr clean-current-text 1 pos)
+             new-auto-text
+             (if (> (strlen clean-current-text)
+                    (+ pos (strlen old-auto-text))
+                 )
+               (substr clean-current-text (+ pos (strlen old-auto-text) 1))
+               ""
+             )
+           )
+          )
+          ;; Priority 4: Empty field
+          ((= clean-current-text "") new-auto-text)
+          ;; Priority 5: Corruption detection
+          ((or
+             (and (vl-string-search "STA " clean-current-text)
+                  (vl-string-search "LT" clean-current-text)
+                  (> (strlen clean-current-text) 30))
+             (wcmatch clean-current-text "*.* LT")
+             (wcmatch clean-current-text "*.* RT")
+           )
+           new-auto-text
+          )
+          ;; Fallback: append WITHOUT space
+          (t (strcat clean-current-text new-auto-text))
+        )
+     )
+     new-text
+    )
   )
-  new-text
 )
 
 ;;; Update auto-text value in lattribs (2-element architecture)
@@ -5885,6 +5965,23 @@
   (cond
     (attr (subst (list tag auto-new) attr lattribs))
     (t (append lattribs (list (list tag auto-new))))
+  )
+)
+
+(defun hcnm-bn-preserve-blank-attribute-text (lattribs lattribs-old / attr old-value)
+  (setq attr (assoc "NOTETXT2" lattribs))
+  (cond
+    ((and attr
+          (setq old-value (cadr (assoc "NOTETXT2" lattribs-old)))
+          (or (not (cadr attr))
+              (= (cadr attr) "")
+              (= (cadr attr) (hcnm-config-getvar "BubbleTextNotFound"))
+          )
+          (and old-value (/= old-value "") (/= old-value (hcnm-config-getvar "BubbleTextNotFound")))
+        )
+     (subst (list "NOTETXT2" old-value) attr lattribs)
+    )
+    (t lattribs)
   )
 )
 ;;; Ensure all bubble attributes have proper 2-element list structure.
@@ -6365,8 +6462,21 @@
 ;; - auto-type: (strcase input-keyword) ALL CAPS key used for internal lookups. Always equals strcase of input-keyword and auto-type.
 ;; - input-keyword: Keyword entered by user. Varies from key only in capitalization for input purposes (initget and getkword format).
 ;; - dialog-type: Not used in code. Hard coded in edit dialog DCL.
-;; - reference-type: Type of reference object ("AL"=Alignment, "SU"=Surface, nil=none)
+;; - reference-type: Type of reference object ("AL"=Alignment, "SU"=Surface, "PIPE"=Pipe, "OBJ"=Any object with a Name property, nil=none)
 ;; - requires-coordinates-p: T if needs p1-world from leader, nil otherwise
+(defun hcnm-bn-normalize-auto-type (auto-type / normalized)
+  (cond
+    ((= (type auto-type) 'str)
+     (setq normalized (strcase auto-type))
+     (cond
+       ((member normalized '("LF" "SF" "SY" "STA" "OFF" "STAOFF" "NAME" "STANAME" "N" "E" "NE" "DIA" "SLOPE" "L" "TEXT" "ENTRY")) normalized)
+       (t normalized)
+     )
+    )
+    (t nil)
+  )
+)
+
 (defun hcnm-bn-auto-text-definitions ()
   '(("LF" "LF" "LF" nil nil)                 ; Length (QTY) - user picks objects
     ("SF" "SF" "SF" nil nil)                 ; Square Feet (QTY) - user picks objects
@@ -6374,7 +6484,7 @@
     ("STA" "STa" "Sta" "AL" t)                ; Station - needs p1-world for alignment query
     ("OFF" "Off" "Off" "AL" t)                ; Offset - needs p1-world for alignment query
     ("STAOFF" "stAoff" "StaOff" "AL" t)          ; Station+Offset - needs p1-world for alignment query
-    ("NAME" "NAme" "Name" "AL" nil)          ; Alignment Name - no coordinates needed
+    ("NAME" "NAme" "Name" "OBJ" nil)          ; Object Name - any object with a Name property, no coordinates needed
     ("STANAME" "STAName" "StaName" "AL" t)        ; Station + Alignment Name - needs p1-world
     ("N" "N" "N" nil t)                     ; Northing - needs p1-world for coordinate
     ("E" "E" "E" nil t)                     ; Easting - needs p1-world for coordinate
@@ -6391,13 +6501,13 @@
   (cadr (assoc (strcase key-insensitive) (hcnm-bn-auto-text-definitions)))
 )
 (defun hcnm-bn-get-auto-text-auto-type (key-insensitive)
-  (strcase key-insensitive)
+  (hcnm-bn-normalize-auto-type key-insensitive)
 )
 (defun hcnm-bn-get-auto-text-reference-type (key-insensitive)
-  (nth 3 (assoc (strcase key-insensitive) (hcnm-bn-auto-text-definitions)))
+  (nth 3 (assoc (hcnm-bn-normalize-auto-type key-insensitive) (hcnm-bn-auto-text-definitions)))
 )
 (defun hcnm-bn-auto-text-requires-coordinates-p (key-insensitive)
-  (nth 4 (assoc (strcase key-insensitive) (hcnm-bn-auto-text-definitions)))
+  (nth 4 (assoc (hcnm-bn-normalize-auto-type key-insensitive) (hcnm-bn-auto-text-definitions)))
 )
 (defun hcnm-bn-get-auto-text-auto-types-list ()
   (mapcar 'car (hcnm-bn-auto-text-definitions))
@@ -6453,6 +6563,7 @@
   ;; Profile start
   (setq time-start (getvar "MILLISECS"))
   ;; Extract parameters from bubble-data
+  (setq auto-type (hcnm-bn-normalize-auto-type auto-type))
   (setq 
     ename-bubble (hcnm-bn-bubble-data-get bubble-data "ename-bubble")
     lattribs (hcnm-bn-bubble-data-get bubble-data "ATTRIBUTES")
@@ -6584,7 +6695,7 @@
         )
        )
        ((= auto-type "NAME")
-        (hcnm-bn-auto-al
+        (hcnm-bn-auto-name
           bubble-data
           tag
           auto-type
@@ -7041,7 +7152,7 @@
 ;; Arguments:
 ;;   bubble-data - Bubble data alist
 ;;   TAG - Attribute tag to update
-;;   auto-type - "STA", "OFF", "STAOFF", "NAME", or "STANAME"
+;;   auto-type - "STA", "OFF", "STAOFF", or "STANAME"
 ;;   obj-reference - VLA-OBJECT alignment (if provided), or NIL (will prompt user)
 ;;   bnatu-context-p - T if BNATU update, NIL if insertion/editing
 ;; Returns: Updated bubble-data with new attribute value
@@ -7161,34 +7272,6 @@
   )
   ;; STEP 3: Format the result based on auto-type
   (cond
-    ((= auto-type "NAME")
-     ;; Alignment name only - no coordinates needed
-     (cond
-       (obj-align
-        (setq
-          string
-           (vl-catch-all-apply
-             'vlax-get-property
-             (list obj-align 'name)
-           )
-        )
-        (cond
-          ((vl-catch-all-error-p string)
-           (haws-debug
-             (list "hcnm-bn-auto-al NAME error: " (vl-princ-to-string string))
-           )
-           (setq string (hcnm-getvar "BubbleTextNotFound"))
-          )
-        )
-       )
-       (t
-        (haws-debug
-          (list "hcnm-bn-auto-al NAME NOT FOUND: obj-align=" (vl-princ-to-string obj-align))
-        )
-        (setq string (hcnm-getvar "BubbleTextNotFound"))
-       )
-     )
-    )
     (sta-off-pair
      ;; Calculation succeeded - extract and format
      (setq
@@ -7347,6 +7430,151 @@
     nil
   )                                     ; Normal auto-text flow (not super-clearance)
   obj-align                             ; Return the alignment object
+)
+;#endregion
+;#region Auto Name
+;; Generic object Name auto-text. Unlike Sta/Off/StaOff/StaName, this does
+;; not depend on alignment station/offset geometry, so any object exposing
+;; a Name property is accepted - pipes, surfaces, structures, alignments,
+;; parcels, etc.
+(defun hcnm-bn-auto-name-get-object (ename-bubble tag auto-type /
+                                     es-object name obj obj-old name-result
+                                     valid-object-p
+                                     )
+  (setq obj-old (hcnm-config-getvar "BubbleCurrentNameObject"))
+  (setq name (if (= (type obj-old) 'vla-object) (vlax-get-property obj-old 'name) ""))
+  ;; If there is a previous object, allow empty input to reuse previous, else loop until one is selected.
+  (while (not valid-object-p)
+    ;; There is no way for us to distinguish fat-fingering from [Enter] so we have to accept both as "reuse previous" if there is a previous object.
+    (if (/= name "") (setq valid-object-p t))
+    (setq es-object
+      (nentsel
+        (strcat
+          "\nSelect object to get name"
+          (cond
+            ((= name "") ": ")
+            (t (strcat " or <" name ">: "))
+          )
+        )
+      )
+    )
+    (cond
+      ;; Valid object - accepted whenever it exposes a Name property
+      ((and
+         es-object
+         (setq obj (vlax-ename->vla-object (car es-object)))
+         (setq name-result (vl-catch-all-apply 'vlax-get-property (list obj 'name)))
+         (not (vl-catch-all-error-p name-result))
+       )
+       (setq valid-object-p t)
+       (hcnm-config-setvar "BubbleCurrentNameObject" obj)
+      )
+      (es-object
+       (princ "\nSelected object has no Name property. Keeping previous object.")
+       (setq obj obj-old)
+      )
+      ((/= name "")
+       (princ "\nNo object selected. Keeping previous object.")
+       (setq obj obj-old)
+      )
+      (t
+       (princ "\nNo object selected. Try again.")
+      )
+    )
+  )
+  (hcnm-bn-gateways-to-viewport-selection-prompt
+    ename-bubble
+    auto-type
+    nil                                 ; obj-target=nil for initial creation
+    (if es-object
+      "PICKED"
+      "REUSED"
+    )                                   ; Based on whether user selected something
+    nil
+  )                                     ; Normal auto-text flow (not super-clearance)
+  obj                                   ; Return the object
+)
+(defun hcnm-bn-auto-name (bubble-data tag auto-type obj-reference bnatu-context-p /
+                          lattribs ename-bubble obj pspace-restore-p
+                          string profile-start
+                         )
+  (setq profile-start (haws-clock-start "insert-auto-name"))
+  (setq
+    lattribs
+     (hcnm-bn-bubble-data-get bubble-data "ATTRIBUTES")
+    ename-bubble
+     (hcnm-bn-bubble-data-get bubble-data "ename-bubble")
+  )
+  ;; STEP 1: Get the referenced object from bnatu (handle) or user selection
+  (cond
+    (obj-reference
+     ;; Path 1: obj-reference provided (VLA-OBJECT from bnatu, via XDATA handle)
+     (setq obj obj-reference)
+    )
+    (t
+     ;; Path 2: No obj-reference - prompt user for selection
+     (setq
+       pspace-restore-p
+        (hcnm-bn-space-set-model)
+       obj
+        (hcnm-bn-auto-name-get-object
+          ename-bubble
+          tag
+          auto-type
+        )
+     )
+    )
+  )
+  ;; STEP 2: Read the object's Name property
+  (setq
+    string
+     (cond
+       ((not obj)
+        (haws-debug
+          (list "hcnm-bn-auto-name NOT FOUND: obj is nil")
+        )
+        (hcnm-getvar "BubbleTextNotFound")
+       )
+       (t
+        (setq string (vl-catch-all-apply 'vlax-get-property (list obj 'name)))
+        (cond
+          ((vl-catch-all-error-p string)
+           (haws-debug
+             (list "hcnm-bn-auto-name error: " (vl-princ-to-string string))
+           )
+           (hcnm-getvar "BubbleTextNotFound")
+          )
+          (t string)
+        )
+       )
+     )
+  )
+  ;; STEP 3: Save the formatted string to the attribute list and update bubble-data
+  (setq
+    lattribs
+     (hcnm-bn-lattribs-put-auto tag string lattribs ename-bubble)
+    bubble-data
+     (hcnm-bn-bubble-data-set bubble-data "ATTRIBUTES" lattribs)
+  )
+  ;; STEP 3.5: Accumulate auto-text metadata for insertion path
+  (cond
+    (obj  ; Only accumulate if we have a valid object
+     (setq
+       bubble-data
+        (hcnm-bn-bubble-data-add-auto-metadata
+          bubble-data
+          tag
+          auto-type
+          (vla-get-handle obj)
+          string
+        )
+     )
+    )
+  )
+  ;; STEP 4: Restore space after calculation is complete
+  (hcnm-bn-space-restore pspace-restore-p)
+  (haws-clock-end "insert-auto-name" profile-start)
+  bubble-data
 )
 ;#endregion
 ;#region Auto NE
@@ -9344,7 +9572,7 @@
             (cond
               ;; Need at least 3 values for a triplet
               ((>= (length values-copy) 3)
-               (setq auto-type (car values-copy))
+               (setq auto-type (hcnm-bn-normalize-auto-type (car values-copy)))
                (setq handle (cadr values-copy))
                (setq auto-text (caddr values-copy))
                ;; Build composite key: ((auto-type . handle) . auto-text)
@@ -9443,6 +9671,12 @@
                (setq composite-key (car handle-pair))  ; (auto-type . handle)
                (setq auto-text (cdr handle-pair))      ; "auto-text"
                ;; Write triplet: auto-type, handle, auto-text
+               (setq composite-key
+                 (cons
+                   (hcnm-bn-normalize-auto-type (car composite-key))
+                   (cdr composite-key)
+                 )
+               )
                (setq xdata-list (append xdata-list (list (cons 1000 (car composite-key)))))  ; auto-type
                (setq xdata-list (append xdata-list (list (cons 1000 (cdr composite-key)))))  ; handle
                (setq xdata-list (append xdata-list (list (cons 1000 auto-text))))            ; auto-text
@@ -9637,10 +9871,111 @@
     )
   )
 )
-
-;#endregion
-;#endregion
-;#region bnatu
+;;==============================================================================
+;; hcnm-bn-set-attribute-source-color
+;;==============================================================================
+;; Purpose:
+;;   Force color-aci onto the ATTRIB sub-entities of ename-bubble whose tag is
+;;   in tags. Color only - group 8 (layer) is never touched, so a bubble the
+;;   company has moved to a NOPLOT layer stays there regardless of which
+;;   lines are auto vs manual. Any existing TrueColor override (group 420) is
+;;   stripped first since it silently wins over group 62 for display.
+;; Called by:
+;;   - hcnm-bn-bnatu-bubble-update (auto-refreshed tags -> alternate color)
+;;   - the bubble insert/replace path (auto tags -> alternate color, typed tags -> ByLayer)
+;;   - hcnm-bn-eb-save (same split, derived from AUTO-HANDLES ground truth)
+;;==============================================================================
+(defun hcnm-bn-set-attribute-source-color (ename-bubble tags color-aci /
+                                           ename-next etype elist atag entdata
+                                           )
+  (setq ename-next ename-bubble)
+  (while (and
+           (setq ename-next (entnext ename-next))
+           (/= "SEQEND" (setq etype (cdr (assoc 0 (setq elist (entget ename-next))))))
+         )
+    (cond
+      ((and (= etype "ATTRIB")
+            (setq atag (cdr (assoc 2 elist)))
+            (member atag tags)
+       )
+       (setq entdata (vl-remove (assoc 420 elist) elist))
+       (setq entdata
+         (if (assoc 62 entdata)
+           (subst (cons 62 color-aci) (assoc 62 entdata) entdata)
+           (append entdata (list (cons 62 color-aci)))
+         )
+       )
+       (entmod entdata)
+       (entupd ename-next)
+      )
+    )
+  )
+)
+(defun hcnm-bn-manual-text-color ()
+  (atoi (cadr (haws-getlayr "NOTES-MANUAL")))
+)
+;;==============================================================================
+;; hcnm-bn-tag-has-manual-text-p
+;;==============================================================================
+;; Purpose:
+;;   Returns T if tag-text has any content left over after removing every
+;;   substring in auto-text-list. A line is only "pure auto" if its full text
+;;   is made up entirely of confirmed auto-text substring(s) - any prefix,
+;;   suffix, or other leftover characters mean the user has manual content on
+;;   that line, even though part of it is auto-generated.
+;;==============================================================================
+(defun hcnm-bn-tag-has-manual-text-p (tag-text auto-text-list / stripped pos auto-text)
+  (setq stripped tag-text)
+  (foreach auto-text auto-text-list
+    (if (and auto-text
+             (/= auto-text "")
+             (setq pos (vl-string-search auto-text stripped))
+        )
+      (setq stripped
+        (strcat
+          (substr stripped 1 pos)
+          (substr stripped (+ pos (strlen auto-text) 1))
+        )
+      )
+    )
+  )
+  (/= stripped "")
+)
+;;==============================================================================
+;; hcnm-bn-classify-note-colors
+;;==============================================================================
+;; Purpose:
+;;   Splits lattribs' non-blank tags into pure-auto vs manual for coloring.
+;;   auto-text-alist maps each currently-auto tag to its confirmed auto-text
+;;   substring(s) (as returned by hcnm-xdata-read's composite-pairs, or built
+;;   from bubble-data's auto-metadata at insertion time). A tag counts as
+;;   manual if it has no entry in auto-text-alist at all, or if its text has
+;;   anything beyond those substrings (hcnm-bn-tag-has-manual-text-p).
+;;   NOTENUM and NOTEGAP are never classified - they keep whatever color they
+;;   already have.
+;; Returns:
+;;   (list pure-auto-tags manual-tags)
+;;==============================================================================
+(defun hcnm-bn-classify-note-colors (lattribs auto-text-alist / attr tg txt auto-entry
+                                     pure-auto manual
+                                    )
+  (foreach attr lattribs
+    (setq tg (car attr) txt (cadr attr))
+    (cond
+      ((member tg '("NOTENUM" "NOTEGAP")))
+      ((= txt ""))
+      ((and (setq auto-entry (assoc tg auto-text-alist))
+            (not (hcnm-bn-tag-has-manual-text-p txt (cdr auto-entry)))
+       )
+       (setq pure-auto (cons tg pure-auto))
+      )
+      (t
+       (setq manual (cons tg manual))
+      )
+    )
+  )
+  (list pure-auto manual)
+)
 
 (defun hcnm-bn-auto-type-requires-coordinates-p (auto-type / keys-entry)
   ;; Returns T if auto-type needs leader position (coordinates), nil otherwise
@@ -9682,6 +10017,8 @@
                                     update-result lattribs xdata-alist
                                     lattribs-old tag-data composite-entry
                                     auto-entry-list tag-list entry-count
+                                    auto-tags-pure auto-tags-mixed
+                                    auto-text-alist color-split
                                    )
   (setq
     lattribs (hcnm-bn-dwg-to-lattribs ename-bubble)
@@ -9708,7 +10045,12 @@
        (foreach composite-entry auto-list
          (setq auto-entry-list
            (append auto-entry-list
-             (list (list (car (car composite-entry)) (cdr (car composite-entry))))
+             (list
+               (list
+                 (hcnm-bn-normalize-auto-type (car (car composite-entry)))
+                 (cdr (car composite-entry))
+               )
+             )
            )
          )
          (setq entry-count (1+ entry-count))
@@ -9760,6 +10102,9 @@
        )
      )
      ;; Write once: XDATA + formatted attributes
+     (setq lattribs
+       (hcnm-bn-preserve-blank-attribute-text lattribs lattribs-old)
+     )
      (cond
        ((not (equal lattribs lattribs-old))
         (haws-debug (list "bnatu-bubble-update: lattribs CHANGED, writing to dwg"))
@@ -9770,11 +10115,164 @@
         (haws-debug (list "bnatu-bubble-update: lattribs UNCHANGED, skipping write"))
        )
      )
+     ;; Color every tag from final ground truth, not just the ones BNATU
+     ;; itself refreshed - a tag is pure-auto only if its full text is
+     ;; nothing but its confirmed auto-text; anything else with content
+     ;; (including tags BNATU never touches because they have no XDATA at
+     ;; all) is manual. An unchanged auto value is still recolored, since
+     ;; this is reasserting ground truth, not reacting to a change.
+     (setq
+       auto-text-alist
+        (mapcar
+          '(lambda (pair) (cons (car pair) (mapcar 'cdr (cdr pair))))
+          xdata-alist
+        )
+       color-split (hcnm-bn-classify-note-colors lattribs auto-text-alist)
+       auto-tags-pure (car color-split)
+       auto-tags-mixed (cadr color-split)
+     )
+     (hcnm-bn-set-attribute-source-color ename-bubble auto-tags-pure 256)
+     (hcnm-bn-set-attribute-source-color ename-bubble auto-tags-mixed (hcnm-bn-manual-text-color))
      entry-count
     )
   )
 )
 
+;;==============================================================================
+;; Unlinked bubble warning helpers
+;;==============================================================================
+;; build-token-list, fielded-p, normalize-text, and token-match-p below are
+;; retained solely because hcnm-debug-check-visible-prefix-postfix (the
+;; c:hcnm-debug-bubble diagnostic) still depends on them - the unlinked-bubble
+;; warning system they were originally written for has been removed.
+(defun hcnm-bn-unlinked-warning-build-token-list ()
+  ;; Config reads are not free (INI/dictionary lookups). Build this list ONCE
+  ;; per run and pass it around instead of rebuilding it repeatedly.
+  (list
+    (hcnm-config-getvar "BubbleTextPrefixLF")
+    (hcnm-config-getvar "BubbleTextPostfixLF")
+    (hcnm-config-getvar "BubbleTextPrefixSF")
+    (hcnm-config-getvar "BubbleTextPostfixSF")
+    (hcnm-config-getvar "BubbleTextPrefixSY")
+    (hcnm-config-getvar "BubbleTextPostfixSY")
+    (hcnm-config-getvar "BubbleTextPrefixSta")
+    (hcnm-config-getvar "BubbleTextPostfixSta")
+    (hcnm-config-getvar "BubbleTextPrefixOff+")
+    (hcnm-config-getvar "BubbleTextPostfixOff+")
+    (hcnm-config-getvar "BubbleTextPrefixOff-")
+    (hcnm-config-getvar "BubbleTextPostfixOff-")
+    (hcnm-config-getvar "BubbleTextPrefixN")
+    (hcnm-config-getvar "BubbleTextPostfixN")
+    (hcnm-config-getvar "BubbleTextPrefixE")
+    (hcnm-config-getvar "BubbleTextPostfixE")
+    (hcnm-config-getvar "BubbleTextPrefixZ")
+    (hcnm-config-getvar "BubbleTextPostfixZ")
+    (hcnm-config-getvar "BubbleTextPrefixPipeDia")
+    (hcnm-config-getvar "BubbleTextPostfixPipeDia")
+    (hcnm-config-getvar "BubbleTextPrefixPipeSlope")
+    (hcnm-config-getvar "BubbleTextPostfixPipeSlope")
+    (hcnm-config-getvar "BubbleTextPrefixPipeLength")
+    (hcnm-config-getvar "BubbleTextPostfixPipeLength")
+  )
+)
+(defun hcnm-bn-unlinked-warning-fielded-p (text /)
+  ;; hcnm-bn-dwg-to-lattribs (via lm:fieldcode) returns the RAW field code
+  ;; for any attribute that has an AutoCAD field attached, not the evaluated
+  ;; display text. Every raw field code opens with the "%<\" delimiter
+  ;; regardless of field type, so match on that instead of enumerating
+  ;; specific field types (AcObjProp/_FldIdx/_ObjId): the enumerated list
+  ;; missed field types used by LF/SF/SY auto-text, letting fielded bubbles
+  ;; be miscounted as unlinked.
+  (and
+    text
+    (wcmatch (strcase text) "*%<\\*")
+  )
+)
+(defun hcnm-bn-unlinked-warning-normalize-text (text / cleaned)
+  (cond
+    ((not text) "")
+    (t
+     (setq cleaned text)
+     (cond
+       ((and (> (strlen cleaned) 2) (= (substr cleaned 1 2) "\\L"))
+        (setq cleaned (substr cleaned 3))
+       )
+       ((and (> (strlen cleaned) 2) (= (substr cleaned 1 2) "\\O"))
+        (setq cleaned (substr cleaned 3))
+       )
+       ((and (> (strlen cleaned) 3) (= (substr cleaned 1 3) "%%u"))
+        (setq cleaned (substr cleaned 4))
+       )
+       ((and (> (strlen cleaned) 3) (= (substr cleaned 1 3) "%%o"))
+        (setq cleaned (substr cleaned 4))
+       )
+     )
+     cleaned
+    )
+  )
+)
+(defun hcnm-bn-unlinked-warning-token-match-p (text token / text-normalized token-normalized)
+  (cond
+    ((and text token)
+     (setq text-normalized (strcase (hcnm-bn-unlinked-warning-normalize-text text)))
+     (setq token-normalized (strcase (hcnm-bn-unlinked-warning-normalize-text token)))
+     (and
+       text-normalized
+       token-normalized
+       (/= token-normalized "")
+       (vl-string-search token-normalized text-normalized)
+     )
+    )
+    (t nil)
+  )
+)
+(defun hcnm-bn-highlight-capture-layer (ename-bubble / entdata)
+  ;; Group 8 (layer) is mandatory on every entity, so this is always a real
+  ;; layer name, never nil.
+  (setq entdata (entget ename-bubble))
+  (cdr (assoc 8 entdata))
+)
+(defun hcnm-bn-highlight-set-layer (ename-bubble layer-name / entdata)
+  (setq entdata (entget ename-bubble))
+  (setq entdata (subst (cons 8 layer-name) (assoc 8 entdata) entdata))
+  (entmod entdata)
+  (entupd ename-bubble)
+)
+;;==============================================================================
+;; hcnm-bn-highlight-updated-bubbles
+;;==============================================================================
+;; Purpose:
+;;   After BNATU updates a batch of bubbles, optionally highlight the ones
+;;   that were actually updated by moving them to a temporary layer, pause
+;;   for the user to review, then restore each bubble's original layer.
+;;   Controlled by the BnatuHighlightUpdated user preference (a checkbox in
+;;   the Bubble Options dialog) - when disabled, this is a no-op and the
+;;   caller's own "Processed N, updated M" message is all the user sees.
+;;==============================================================================
+(defun hcnm-bn-highlight-updated-bubbles (updated-bubbles / ename-bubble entry-list)
+  (cond
+    ((and updated-bubbles (= (hcnm-config-getvar "BnatuHighlightUpdated") "1"))
+     (setq entry-list nil)
+     (foreach ename-bubble updated-bubbles
+       (setq entry-list
+         (append entry-list
+           (list (list ename-bubble (hcnm-bn-highlight-capture-layer ename-bubble)))
+         )
+       )
+       (hcnm-bn-highlight-set-layer ename-bubble "C-ANNO")
+     )
+     (getstring
+       (strcat
+         "\n" (itoa (length updated-bubbles))
+         " updated bubble(s) are highlighted. Press Enter to continue: "
+       )
+     )
+     (foreach entry entry-list
+       (hcnm-bn-highlight-set-layer (car entry) (cadr entry))
+     )
+    )
+  )
+)
 ;;==============================================================================
 ;; c:hcnm-bnatu - Bubble Note Auto-Text Updater (User Command)
 ;;==============================================================================
@@ -9793,34 +10291,42 @@
 (defun c:hcnm-bnatu ( /
                       ss i ename-bubble
                       bubble-count updated-count time-start time-bubble time-total
-                      entry-count total-entries
+                      entry-count total-entries updated-bubbles
                      )
   (princ "\nUpdating all bubble note auto-text...")
   (setq time-start (getvar "MILLISECS"))
-  ;; Collect all INSERTs with HCNM-BUBBLE XDATA
-  (setq ss (ssget "X" (list (cons 0 "INSERT") (list -3 (list "HCNM-BUBBLE")))))
+  ;; Collect all CNM bubble block inserts, even if they have no XDATA yet -
+  ;; hcnm-bn-bnatu-bubble-update classifies and colors every tag on every
+  ;; bubble it's given, auto or manual, so there is no need to pre-filter.
+  (setq ss (ssget "X" '((0 . "INSERT"))))
   (setq
     bubble-count 0
     updated-count 0
     total-entries 0
+    updated-bubbles nil
   )
   (cond
     (ss
      (setq i 0)
      (while (setq ename-bubble (ssname ss i))
-       (setq time-bubble (getvar "MILLISECS"))
-       (setq bubble-count (1+ bubble-count))
-       (setq entry-count (hcnm-bn-bnatu-bubble-update ename-bubble))
        (cond
-         (entry-count
-          (setq updated-count (1+ updated-count))
-          (setq time-bubble (- (getvar "MILLISECS") time-bubble))
-          (haws-clock-console-log
-            (strcat "  [BUP] Bubble " (itoa bubble-count) "/" (itoa (sslength ss))
-                    " (" (itoa entry-count) " entries): "
-                    (itoa time-bubble) "ms")
+         ((hcnm-bn-is-bubble-p ename-bubble)
+          (setq time-bubble (getvar "MILLISECS"))
+          (setq bubble-count (1+ bubble-count))
+          (setq entry-count (hcnm-bn-bnatu-bubble-update ename-bubble))
+          (cond
+            (entry-count
+             (setq updated-count (1+ updated-count))
+             (setq updated-bubbles (append updated-bubbles (list ename-bubble)))
+             (setq time-bubble (- (getvar "MILLISECS") time-bubble))
+             (haws-clock-console-log
+               (strcat "  [BUP] Bubble " (itoa bubble-count) "/" (itoa (sslength ss))
+                       " (" (itoa entry-count) " entries): "
+                       (itoa time-bubble) "ms")
+             )
+             (setq total-entries (+ total-entries entry-count))
+            )
           )
-          (setq total-entries (+ total-entries entry-count))
          )
        )
        (setq i (1+ i))
@@ -9829,6 +10335,7 @@
      (princ (strcat "\nProcessed " (itoa bubble-count) " bubble(s), updated "
                     (itoa updated-count) " with auto-text ("
                     (itoa total-entries) " auto-text entries)."))
+     (hcnm-bn-highlight-updated-bubbles updated-bubbles)
      (haws-clock-console-log (strcat "[BUP] TOTAL TIME: " (itoa time-total) "ms"))
      (haws-clock-console-log (strcat "[BUP] AVG per bubble: " (itoa (/ time-total (max bubble-count 1))) "ms"))
     )
@@ -10287,10 +10794,11 @@
                                   lattribs xdata-alist /
                                   ename-reference attr current-text
                                   old-auto-text auto-new new-text search-succeeded-p
-                                  tag-xdata composite-key composite-entry tag-entry
-                                  remaining-entries
+                                  preserve-current-p tag-xdata composite-key
+                                  composite-entry tag-entry remaining-entries
                                  )
   ;; Read current text from passed lattribs
+  (setq auto-type (hcnm-bn-normalize-auto-type auto-type))
   (setq
     ename-reference
       (cond
@@ -10334,9 +10842,29 @@
       " differs=" (if (equal old-auto-text auto-new) "NO" "YES")
     )
   )
-  ;; Smart replace - preserve user edits around auto-text
+  ;; Preserve the existing visible line if the calculated value is empty or unusable.
+  (setq preserve-current-p
+    (or (not auto-new)
+        (= auto-new "")
+        (= auto-new (hcnm-config-getvar "BubbleTextNotFound"))
+    )
+  )
   (setq new-text
-    (hcnm-bn-smart-replace-auto current-text old-auto-text auto-new)
+    (cond
+      (preserve-current-p current-text)
+      (t
+       (setq new-text (hcnm-bn-smart-replace-auto current-text old-auto-text auto-new))
+       (cond
+         ((or (not new-text)
+              (= new-text "")
+              (= new-text (hcnm-config-getvar "BubbleTextNotFound"))
+           )
+          current-text
+         )
+         (t new-text)
+       )
+      )
+    )
   )
   ;; Detect if smart replace found old auto-text
   (setq search-succeeded-p
@@ -10357,6 +10885,11 @@
   )
   ;; Update xdata-alist (accumulate, caller writes)
   (cond
+    (preserve-current-p
+     ;; Recalculation failed or returned unusable text; leave the existing XDATA
+     ;; entry untouched so the bubble does not lose its prior auto-text state.
+     (list T lattribs xdata-alist)
+    )
     (search-succeeded-p
      ;; Update XDATA composite key with new auto-text
      (setq tag-entry (assoc tag xdata-alist))
@@ -10811,18 +11344,41 @@
     )
   )
 )
-(defun hcnm-bn-eb-save (ename-bubble)
+(defun hcnm-bn-eb-save (ename-bubble / lattribs auto-handles auto-tags manual-tags
+                        auto-text-alist color-split clean-lattribs
+                       )
+  (setq
+    lattribs (cadr (assoc "LATTRIBS" hcnm-bn-eb-state))
+    auto-handles (cadr (assoc "AUTO-HANDLES" hcnm-bn-eb-state))
+  )
   ;; NOTE: Tiles already read into lattribs by accept action_tile
   ;; Save attributes (concatenated) and XDATA (auto text only)
-  (hcnm-bn-lattribs-to-dwg
-    ename-bubble
-    (cadr (assoc "LATTRIBS" hcnm-bn-eb-state))
-  )
+  (hcnm-bn-lattribs-to-dwg ename-bubble lattribs)
   ;; Save XDATA
-  (hcnm-bn-xdata-save
-    ename-bubble
-    (cadr (assoc "AUTO-HANDLES" hcnm-bn-eb-state))
+  (hcnm-bn-xdata-save ename-bubble auto-handles)
+  ;; Color every line from final ground truth, not just what was clicked or
+  ;; typed this session - a tag only appears in auto-handles if it still has
+  ;; a confirmed-live auto value (eb-update-text prunes it otherwise). A tag
+  ;; is pure-auto only if its full text is exactly that confirmed value;
+  ;; any manual prefix/suffix mixed in makes the whole line manual.
+  ;; NOTETXT1/NOTETXT2 always carry a %%u/%%o display code once the dialog
+  ;; has painted their tiles (hcnm-bn-eb-show via lattribs-to-dlg), and
+  ;; get_tile round-trips that code back into state on every save regardless
+  ;; of which tag the user actually touched - strip it here or a pure-auto
+  ;; line on either of those two tags looks like it has leftover manual text.
+  (setq
+    clean-lattribs (hcnm-bn-underover-remove lattribs)
+    auto-text-alist
+     (mapcar
+       '(lambda (pair) (cons (car pair) (mapcar 'cdr (cdr pair))))
+       auto-handles
+     )
+    color-split (hcnm-bn-classify-note-colors clean-lattribs auto-text-alist)
+    auto-tags (car color-split)
+    manual-tags (cadr color-split)
   )
+  (hcnm-bn-set-attribute-source-color ename-bubble auto-tags 256)
+  (hcnm-bn-set-attribute-source-color ename-bubble manual-tags (hcnm-bn-manual-text-color))
   -1
 )
 ;; Assigns DONE_DIALOG codes other than the autotext buttons.
@@ -11264,12 +11820,43 @@
   (princ)
 )
 
+(defun hcnm-debug-check-visible-prefix-postfix (ename-bubble token-list / lattribs attr-data text token normalized-text normalized-token matches)
+  (setq matches nil)
+  (if (not token-list)
+    (setq token-list (hcnm-bn-unlinked-warning-build-token-list))
+  )
+  (cond
+    ((and ename-bubble (not (hcnm-xdata-read ename-bubble)))
+     (setq lattribs (hcnm-bn-dwg-to-lattribs ename-bubble))
+     (foreach attr-data lattribs
+       (setq text (cadr attr-data))
+       (cond
+         ((and text (/= text "")
+               (not (hcnm-bn-unlinked-warning-fielded-p text)))
+          (foreach token token-list
+            (cond
+              ((and token (/= token "")
+                    (setq normalized-text (strcase (hcnm-bn-unlinked-warning-normalize-text text)))
+                    (setq normalized-token (strcase (hcnm-bn-unlinked-warning-normalize-text token)))
+                    (vl-string-search normalized-token normalized-text))
+               (setq matches (append matches (list (list (car attr-data) text token))))
+              )
+            )
+          )
+         )
+       )
+     )
+    )
+  )
+  matches
+)
+
 ;;==============================================================================
 ;; EXISTING DEBUG UTILITIES 
 ;;==============================================================================
 
 ;; Main diagnostic command - shows everything about selected bubble
-(defun c:hcnm-debug-bubble (/ en)
+(defun c:hcnm-debug-bubble (/ en matches match-line message)
   (princ "\nSelect a bubble note: ")
   (setq en (car (entsel)))
   (if en
@@ -11277,6 +11864,21 @@
       (hcnm-debug-show-lattribs en)
       (hcnm-debug-show-xdata en)
       (hcnm-debug-validate-bubble en)
+      (setq matches (hcnm-debug-check-visible-prefix-postfix en nil))
+      (cond
+        (matches
+         (setq message "Detected configured prefix/postfix text on visible lines with no XDATA:\n")
+         (foreach match-line matches
+           (setq message (strcat message "- " (car match-line) " => " (cadr match-line) " [token: " (caddr match-line) "]\n"))
+         )
+         (princ "\n=== PREFIX/POSTFIX DETECTION ===")
+         (princ message)
+        )
+        (t
+         (princ "\n=== PREFIX/POSTFIX DETECTION ===")
+         (princ "\n  No configured prefix/postfix text found on visible lines without XDATA.")
+        )
+      )
     )
     (princ "\nNo entity selected.")
   )
@@ -11740,6 +12342,7 @@
   (hcnm-config-set-action-tile "BubbleTextLine6PromptP")
   (hcnm-config-set-action-tile "BubbleTextLine0PromptP")
   (hcnm-config-set-action-tile "BubbleSkipEntryPrompt")
+  (hcnm-config-set-action-tile "BnatuHighlightUpdated")
   (hcnm-config-set-action-tile "BubbleOffsetDropSign")
   (hcnm-config-set-action-tile "BubbleStreetNameAllCaps")
   (hcnm-config-set-action-tile "BubbleTextPrefixLF")

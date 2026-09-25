@@ -18,6 +18,7 @@
 ("NOTESKEYGRID" "C-ANNO-HCNM-TABL-GRID"           "13"  "")         ;Key Notes table grid
 ("NOTESKEYQTYS" "C-ANNO-HCNM-TABL-QTTY"           "2"   "")         ;Key Notes table quantities attributes.
 ("NOTESLDR"     "C-ANNO-HCNM-BUBL"                "m"   "")         ;Bubble notes, BOX, CIR, DIA, ELL, HEX, PEN, etc.
+("NOTES-MANUAL" "C-ANNO-HCNM-BUBL"                "1"   "")         ;Color override for manually-typed bubble note text (layer unchanged - never move off NOPLOT)
 ("NOTESTAL"     "C-ANNO-HCNM-TABL-TOTL"           "m"   "")         ;Quantity Take-off table
 ("NOTESNOPLOT"  "C-ANNO-HCNM-NPLT"                "252" "")         ;CNM layer to hide attributes on.
 ("0"            "0"                               ""    "")         ;Layer to insert multilayer or explode blocks on (usually"0")
