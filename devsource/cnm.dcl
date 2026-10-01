@@ -161,6 +161,10 @@ HCNMBubble : dialog {
 			key = "BubbleAreaIntegral";
 			label = "Change to Integral arrowhead when adding area quantities.";
 		}
+		: toggle {
+			key = "BnatuHighlightUpdated";
+			label = "Show continue prompt after the auto text updater is ran.";
+		}
 		: edit_box {
 			key = "NoteTypes";
 			label = "Note shapes";
@@ -532,7 +536,7 @@ HCNMEditBubble : dialog {
 		}
 	}
 	: row {
-		: button {label = "Text"; key = "TEXT";}
+		: button {label = "Copy Text"; key = "COPY";}
 		: button {label = "LF"; key = "LF";}
 		: button {label = "SF"; key = "SF";}
 		: button {label = "SY"; key = "SY";}
@@ -541,10 +545,10 @@ HCNMEditBubble : dialog {
 		: button {label = "NE"; key = "NE";}
 	}
 	: row {
+ 		: button {label = "Name"; key = "NAME";}
 		: button {label = "Sta"; key = "STA";}
 		: button {label = "Off"; key = "OFF";}
 		: button {label = "StaOff"; key = "STAOFF";}
-		: button {label = "Name"; key = "NAME";}
 		: button {label = "StaName"; key = "STANAME";}
 	}
 	: row {

@@ -48,6 +48,15 @@
   )
 )
 ;;---------------Profiles Section---------------
+(defun c:hcnm-debug-bubble ()
+  (c:HAWS-LOAD-FROM-APP-DIR "cnm")
+  (c:hcnm-debug-bubble)
+)
+
+(defun c:hcnm-bubble-debug ()
+  (c:hcnm-debug-bubble)
+)
+
 (haws-autoload "eop"      '("haws-eop"))
 (haws-autoload "profiles" '("haws-ellabel" "haws-elv" "haws-grb" "haws-grc" "haws-grd" "haws-lst" "haws-newpro"
                        "haws-pc" "haws-pldr" "haws-pm" "haws-pred" "haws-pro" "haws-procb" "haws-proe"
@@ -89,7 +98,8 @@
                         "haws-cnmmenu" "haws-cnmsetup"
                         "haws-phaseedit" "haws-setnotephases"
                         "haws-ntpurge" "hcnm-setnotesbubblestyle"
-                        "hcnm-cnmoptions" "hcnm-bnatu")
+                        "hcnm-cnmoptions" "hcnm-bnatu"
+                        "hcnm-debug-bubble" "hcnm-bubble-debug")
 )
 (haws-autoload "insblk"   '("haws-gb" "haws-gc" "haws-invl" "haws-invr" "haws-lotel" "haws-pad"
                             "haws-secb" "haws-secl" "haws-secr" "haws-sect"
